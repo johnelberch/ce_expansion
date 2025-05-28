@@ -1,19 +1,20 @@
-import itertools
 import collections.abc
 import functools
-from typing import Iterable, Optional, Dict, List
- # Dict[key,value]
-import numpy as np
-import pandas as pd
+from copy import deepcopy
+from warnings import warn
+from typing import Dict, Iterable, List, Optional
+
 import ase
 import ase.units
+import numpy as np
 
 from ce_expansion.atomgraph import adjacency
-from ce_expansion.data.gamma import GammaValues
+from ce_expansion.data import radii, ce_bulk
 
+## NOTE FOR EDITING: 
+# Things to change will have the following comment: TODO
+# Suggestions and questions will have the following comment: QUESTION
 
-## NOTE FOR EDITING: Things to change will have the following comment:
-# TODO
 
 def recursive_update(d: dict, u: dict) -> dict:
     """
@@ -38,115 +39,115 @@ def recursive_update(d: dict, u: dict) -> dict:
             d[k] = v
     return d
 
-#TODO: Modify so it doesn't read from HTML and also can accept modified versions of atoms (either Au_prime, or Np which turns out to be Au with something on it)
-def get_cutoffs(atoms,x):
-    """Custom Cutoffs from custom Radii"""
-    radii = {'Au':1.47*x,
-             'Pd':1.38*x,
-             'Pt':1.38*x}
-    df = pd.read_html('http://crystalmaker.com/support/tutorials/atomic-radii/index.html',header=0)[0]
-    for element in np.unique(atoms.symbols):
-        if element not in radii.keys():
-            try:
-                radii[element] = float(df[df['ElementSymbol']==element]['CovalentRadius [Å]'].values[0])
-            except:
-                radii[element] = float(df[df['Element Symbol']==element]['Covalent Radius [Å]'].values[0])
 
-    return [radii[atom_type] for atom_type in atoms.symbols]
+def get_cutoffs(atoms: ase.Atoms, mapping: Dict[str,str], x: float) -> List[float]:
+    """
+    Custom cutoffs from custom radii
+    
+    Args:
+        atoms (ase.Atoms): The ASE atoms object representing the nanoparticle investigated.
+        mapping (dict): Mapping dictionary with (key,value) pairs corresponding to (fake element, original element). e.g., {'Np' : 'Au'} for 'Np' atoms representing 'Au' atoms with adsorbates.
+        x (float): Cutoff factor.
+    
+    Returns:
+        (list) : List of radii 
+    """
 
-#TODO: Create a child that will inhering all from BCModel in a new script called BCModel_patch. 
-#This child will take a dictionary of Gamma values (non-negociable for now, as it might be tricky)
-#This child will also take a dictionary of mappings (in other words, what each element represents)
-#This child will have new methods to define conectivity compared to the parent, so it accounts for the customized identities
-class BCModel:
-    def __init__(self, atoms: ase.Atoms, metal_types: Optional[Iterable] = None,
-                 bond_list: Optional[Iterable] = None, info: Optional[dict] = None, CN_Method='frac',metal=True):
+    # Radii modification like in the original code
+    # QUESTION: Following Denny's implementation in NP. I multiplied the corresponding radii by x. BUT IT WAS NOT IN THE ORIGINAL (I assume it is a mistake that Denny overwrote in Canela_NP)
+    radii['Au'] = 1.47
+    radii['Pd'] = 1.38
+    radii['Pt'] = 1.38
+    
+    # Update with user-provided mapping
+    for k,v in mapping.items():
+        radii[k] = radii[v]
+
+    return [radii[atom_type]*x for atom_type in atoms.symbols]
+
+
+class BCModelAds:
+    def __init__(
+            self, atoms: ase.Atoms, 
+            gamma_values: Dict[str, Dict[str,float]], 
+            bond_list: Optional[Iterable] = None, 
+            CN_Method: str = "frac", 
+            mapping: Optional[Dict[str,str]] = {},
+        ):
         """
-        Based on metal_types, create ce_bulk and gamma dicts from data given
+        Custom BCM class for calculations involving adsorbates
 
         Args:
-        atoms: ASE atoms object which contains the data of the NP being tested
-        bond_list: list of atom indices involved in each bond
-        info: Information on how the model was parameterized
-        KArgs:
-        metal_types: List of metals found within the nano-particle
-                     If not passed, use elements provided by the atoms object
-        CN_Method:  Options "frac" or "int"
-        metal:      If False, then functionality involving gamma values is disabled
+            atoms (ase.Atoms): ASE atoms object which contains the data of the NP being tested      
+            gamma_values (dict): Dictionary containing the gamma values for each atom pair. Outer dict keys correspond to element i. Inner dict keys correspond to element j. Inner dict value correspond to gamma_ij
+
+        Kwargs:
+            bond_list (Iterable): list of atom indices involved in each bond
+            CN_Method (str):  Options "frac" or "int"
+            mapping (dict): Mapping dictionary with (key,value) pairs corresponding to (fake element, original element). e.g., {'Np' : 'Au'} for 'Np' atoms representing 'Au' atoms with adsorbates.
         """
         
-
-        self.CN_Method = CN_Method
+        # Basic assignments
+        self.CN_Method = CN_Method 
+        self.bond_list = bond_list
         self.atoms = atoms.copy()
         self.atoms.pbc = False
-        
-        if info is None:
-            self.info = {}
-        else:
-            self.info = info
-         
-        if metal_types is None:
-            # get metal_types from atoms object
-            self.metal_types = sorted(set(atoms.symbols))
-        else:
-            # ensure metal_types to unique, sorted list of metals
-            self.metal_types = sorted(set(m.title() for m in metal_types))
-            
-        self.syms = atoms.symbols # atom symbols
-        self.bond_list = bond_list
-        self.radius = {'Au':1.47,'Pd':1.38,'Pt':1.38} # From DFT calculations
+        self.syms = atoms.symbols
+        self.metal_types = sorted(set(atoms.symbols))
+        self.gammas = gamma_values
+        self.mapping = mapping
+        self.radius = deepcopy(radii)
+        for k,v in {'Au':1.47,'Pd':1.38,'Pt':1.38}.items():
+            self.radius[k] = v #Custom radii defined in the original code (obtained from DFT)
 
-        # TODO: Remove this HTML and read from a repository-based CSV or JSON file instead!
-        df = pd.read_html('http://crystalmaker.com/support/tutorials/atomic-radii/index.html',header=0)[0]
+        # Mapping checks and modifications
+        if not mapping:
+            warn("BCModelAds class was initiated, but no Mapping dictionary provided. Is this expected behavior?", UserWarning)
 
-        #TODO: We will need to patch this so it can read from the atoms object. another option, is to crate a mapping dictionary, pass it to BCM, so it knows where to replace Np for Au for instance
-        for element in np.unique(self.atoms.symbols):
-            if element not in self.radius.keys():
-                try:
-                    self.radius[element] = float(df[df['ElementSymbol']==element]['CovalentRadius [Å]'].values[0])
-                except:
-                    self.radius[element] = float(df[df['Element Symbol']==element]['Covalent Radius [Å]'].values[0])
+        assert all([{k,v} <= set(self.metal_types) for (k,v) in self.mapping.items()]), "Some elements in the mapping dictionary are not present in the atoms object"
+        assert all([e in self.metal_types for e in gamma_values.keys()]), "Some elements in the atoms object are not present in the Gamma values dictionary"
+        assert all(e == len(gamma_values) for e in [len(L) for L in gamma_values.values()]), "The Gamma values dictionary is inconsistent. Make sure all inner dictionaries have the same length and include ALL elements"
 
-        self.avg_radius =np.mean([self.radius[m] for m in self.syms])
+        for k,v in self.mapping.items():
+            self.radius[k] = radii[v]
 
-        if CN_Method=='int':
-            self.inv_radii = np.ones(len(self.metal_types))
-        elif CN_Method == 'frac':
-            self.inv_radii = np.array([self.radius[m]/self.avg_radius for m in self.metal_types])
-        
-
-        
-        #TODO: How can we modify adjacency.build_bonds_arr to work with the custom atoms object? working with Np elements will be easier (function will work just fine)
+        # Define bond list
+        #TODO: Check if having bond_list is really necessary. If not, merge with the if statement below
+        #QUESTION: One idea is to modify the GA algorithm so it updates the bond list with simple slicing. That way, we can avoid calling adjacency.build_bonds_arr every time we need it?
         if self.bond_list is None:
             if CN_Method == 'frac':
-                self.radii_bond_list = get_cutoffs(self.atoms,1.2)
+                self.radii_bond_list = get_cutoffs(self.atoms,self.mapping,1.2)
                 self.bond_list = adjacency.build_bonds_arr(self.atoms,self.radii_bond_list)
             else:
                 self.bond_list = adjacency.build_bonds_arr(self.atoms)
 
+        # Values for precomps
         if CN_Method=='int':
+            self.inv_radii = np.ones(len(self.metal_types))
             self.cn = np.bincount(self.bond_list[:, 0])
         elif CN_Method == 'frac':
+            self.avg_radius =np.mean([self.radius[m] for m in self.syms]) 
+            self.inv_radii = np.array([self.radius[m]/self.avg_radius for m in self.metal_types])
             self.cn = np.bincount(self.bond_list[:, 0])
-            #self.cn = self._calc_cn_frac(self.cns) # fractional CN
+
         # get bonded atom columns
         self.a1 = self.bond_list[:, 0]
         self.a2 = self.bond_list[:, 1]
-        if metal:
-            # creating gamma list for every possible atom pairing
-            self.gammas = None
-            self.ce_bulk = None
-            self._get_bcm_params() #TODO: read and modify this (computing Gammas)
 
-            # Calculate and set the precomps matrix
-            self.precomps = None
-            self.cn_precomps = None
-            self._get_precomps() #TODO: read and modify this (computing Gammas)
+        # Setting precomputed values for quick calculations
+        self.ce_bulk = None
+        self.precomps = None
+        self.cn_precomps = None
+
+        self._get_bcm_params()
+        self._get_precomps()
+
 
     def __len__(self) -> int:
         return len(self.atoms)
 
 
+    ### FROM HERE
     def calc_ce(self, orderings: np.ndarray) -> float:
         """
         Calculates the Cohesive energy (in eV / atom) of the ordering given or of the default ordering of the NP
@@ -161,9 +162,8 @@ class BCModel:
         """
         if self.CN_Method == 'int':
             return (self.precomps[orderings[self.a1], orderings[self.a2]] / self.cn_precomps).sum() / len(self.atoms)
-        else:
+        elif self.CN_Method == 'frac':
             return (self.precomps[orderings[self.a1], orderings[self.a2]] / self.cn_precomps[self.cn[self.a1], orderings[self.a1]]).sum() / len(self.atoms)
-
 
 
     def calc_ee(self, orderings: np.ndarray) -> float:
@@ -197,6 +197,7 @@ class BCModel:
             ee -= self.calc_ce(o_mono_x) * x_ele
         return ee
 
+
     def calc_smix(self, orderings: np.ndarray) -> float:
         """
         Uses boltzman constant, orderings, and element compositions to determine the smix of the nanoparticle
@@ -220,6 +221,7 @@ class BCModel:
 
         return smix
 
+
     def calc_gmix(self, orderings: np.ndarray, T: float = 298.15) -> float:
         """
         gmix (eV / atom) = self.ee - T * self.calc_smix(ordering)
@@ -232,6 +234,7 @@ class BCModel:
         free energy of mixing (gmix)
         """
         return self.calc_ee(orderings) - T * self.calc_smix(orderings)
+
 
     def metropolis(self, ordering: np.ndarray, num_steps: int = 1000) -> None:
         """
@@ -274,6 +277,7 @@ class BCModel:
 
         return best_ordering, best_energy, energy_history
 
+
     @functools.cached_property
     def num_shells(self) -> int:
         """
@@ -281,6 +285,7 @@ class BCModel:
         Use calc_shell_map if user did not define num_shells
         """
         return max(self.shell_map)
+
 
     @functools.cached_property
     def shell_map(self) -> Dict[int, Iterable[int]]:
@@ -292,7 +297,7 @@ class BCModel:
         etc.
 
         Returns:
-        shell_map: dict of shell number and array of atom indices in shell
+            shell_map (dict): dict of shell number and array of atom indices in shell
         """
         remaining_atoms = set(range(len(self.atoms)))
 
@@ -313,47 +318,27 @@ class BCModel:
         shell_map = {k - cur_shell: v for k, v in shell_map.items()}
         return shell_map
     
-    def get_info(self):
-        """
-        Prints out and returns the information stored in the bcm object on how the model
-        was parameterized.  This can be any info that may be relevant but some good info to store
-        are:
-        1. What method was used to calculate the Gamma values (e.g. NP or Dimer method)
-        2. Other info on how the gamma values were calculated (were energies from DFT (if so then what functional was used), experimental or approximated)
-        3. Information on the CE_Bulk value being used
-       
-        Returns:
-        Info [dict]: Original info dictionary used to initialize the bcm instance
-        """
-        for key in self.info:
-           print(f'{key}: {self.info[key]}\n')
-        return self.info
-          
+    
+    #NOTE: Modified these two already
     def _get_bcm_params(self) -> None:
         """
         Creates gamma and ce_bulk dictionaries which are then used
         to created precomputed values for the BCM calculation
 
         Sets:
-        gamma: Weighting factors of the computed elements within the BCM
-        ce_bulk: Bulk Cohesive energy values
+            ce_bulk (dict): Bulk Cohesive energy values for the elements, accounting for the mapping {element_symbol : ce_bulk value}
         """
-        gammas = {}
-        ce_bulk = {}
-        for item in itertools.combinations_with_replacement(self.metal_types, 2):
-            # Casting metals and setting keys for dictionary
-            metal_1, metal_2 = item
 
-            gamma_obj = GammaValues(metal_1, metal_2)
+        ce_bulk_values = {}
 
-            # using Update function to create clean Gamma an bulk dictionaries
-            gammas = recursive_update(gammas, gamma_obj.gamma)
-            # add ce_bulk vals
-            ce_bulk[gamma_obj.element_a] = gamma_obj.ce_a
-            ce_bulk[gamma_obj.element_b] = gamma_obj.ce_b
+        for M in self.metal_types:
+            #Tries getting M from the mapping dictionary keys, if it is not there, use M
+            M_use = self.mapping.get(M, M) 
 
-        self.ce_bulk = ce_bulk
-        self.gammas = gammas
+            # Read from ce_bulk data in __init__.py
+            ce_bulk_values[M] = ce_bulk[M_use]
+
+        self.ce_bulk = ce_bulk_values
 
     def _get_precomps(self) -> None:
         """
@@ -363,30 +348,26 @@ class BCModel:
         [precomps] = [gamma of element 1] * [ce_bulk of element 1 to element 2]
 
         Sets:
-        precomps: Precomp Matrix
+            precomps (np.ndarray): Precomp Matrix (gamma x ce_bulk) of shape (len(metal_types), len(metal_types))
+            cn_precomps (np.ndarray) Precomp Vector (CNi x CN_bulk) NOTE: CE_bulk = 12 by default 
         """
         # precompute values for BCM calc
         n_met = len(self.metal_types)
-
         precomps = np.ones((n_met, n_met))
-        # cnf_precomps = np.ones((12 , n_met))
 
-        for i in range(n_met):
-            for j in range(n_met):
-                
-                M1 = self.metal_types[i]
-                M2 = self.metal_types[j]
+        # General precomps
+        for i, M1 in enumerate(self.metal_types):
+            for j, M2 in enumerate(self.metal_types):
                 precomp_bulk = self.ce_bulk[M1]
                 precomp_gamma = self.gammas[M1][M2]
-                # cnf_precomps[i, j] = np.sqrt((self.cns[i] + (1/self.radius[M1])) * 12)
-
                 precomps[i, j] = precomp_gamma * precomp_bulk
+        self.precomps = precomps
         
+        # QUESTION: Expand this functionality to include other CE_bulk values?
+        # Coordination number precomp
         if self.CN_Method == 'int':
             self.cn_precomps = np.sqrt(self.cn * 12)[self.a1]
-        else:
+        elif self.CN_Method == 'frac':
             self.cn_precomps = np.sqrt((self.inv_radii * np.vstack(range(15))) * 12)
         
-        self.precomps = precomps
-        # self.cnf_precomps = cnf_precomps
-         # self.cn_precomps = np.sqrt(self.cn * 12)[self.a1]
+        

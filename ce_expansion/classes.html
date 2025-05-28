@@ -1,0 +1,231 @@
+<html>
+  <body>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
+      <div class="mermaid">
+    
+        classDiagram
+          class AtomGraph {
+            cns : ndarray
+            coeffs : dict
+            max_cn
+            min_cn
+            mono_ce0
+            mono_ce1
+            num_atoms
+            symbols : tuple
+            unique_cns
+            calcMixing(ordering, holder_array)
+            calc_ce(ordering)
+            calc_cn_dist(ordering)
+            calc_ee(ordering)
+            countMixing(ordering, holder_array)
+            getLocalCE(ordering, index)
+            get_adjacency_list()
+            metropolis(ordering, num_steps, swap_any)
+            set_composition(kind0, kind1)
+          }
+          class Atoms {
+            id
+            index
+            nanoparticle
+            structure_id
+            x
+            y
+            z
+          }
+          class BCModel {
+            CN_Method : str
+            a1
+            a2
+            atoms
+            avg_radius
+            bond_list : Optional[Iterable], list, ndarray
+            ce_bulk : NoneType, dict
+            cn : ndarray
+            cn_precomps : NoneType
+            gammas : NoneType, dict
+            info : dict
+            inv_radii : ndarray
+            metal_types
+            num_shells
+            precomps : NoneType, ndarray
+            radii_bond_list
+            radius : dict
+            shell_map
+            syms
+            calc_ce(orderings: np.ndarray) float
+            calc_ee(orderings: np.ndarray) float
+            calc_gmix(orderings: np.ndarray, T: float) float
+            calc_smix(orderings: np.ndarray) float
+            get_info()
+            metropolis(ordering: np.ndarray, num_steps: int) None
+          }
+          class BimetallicLog {
+            batch_run_num
+            date
+            ga_generations
+            id
+            metal1
+            metal2
+            new_min_structs
+            runtime
+            shape
+            shell_range
+            tot_structs
+          }
+          class BimetallicResults {
+            CE
+            EE
+            atoms_obj : NoneType
+            compressed_ordering
+            diameter
+            id
+            last_updated
+            metal1
+            metal2
+            n_metal1
+            n_metal2
+            num_atoms
+            ordering
+            shape
+            smix : NoneType
+            structure_id
+            build_atoms_obj()
+            build_central_rdf(nbins, pcty)
+            build_chem_formula(latex, bold)
+            build_prdf(alpha, beta, dr)
+            build_prdf_plot()
+            get_atoms_obj()
+            get_chemical_formula(latex, bold)
+            get_gmix(T)
+            save_np(path)
+            show()
+          }
+          class GA {
+            all_data : dict
+            bcm : Union[BCModel, ase.Atoms]
+            composition : ndarray
+            continued : int
+            dt_created : datetime
+            e : int
+            formula : str
+            generation : int
+            has_run : bool
+            is_monometallic
+            last_min : int
+            max_gens : int
+            mute_pct
+            n_mute
+            n_mute_atomswaps : Optional[int]
+            num_atoms
+            orig_min
+            pop : list
+            popsize : int
+            prev_results : NoneType
+            random : bool
+            runtime : int
+            save_every : int
+            shape : str
+            spike : bool
+            stats : list, ndarray
+            use_metropolis : bool
+            continue_run(max_gens: int, max_nochange: int, min_gens: int)
+            initialize_new_run()
+            is_new_min(check_db: bool) bool
+            make_atoms_object(np_index: int) ase.Atoms
+            plot_results(save_path: str, ax: plt.Axes, show: bool) Union[plt.Figure, plt.Axes]
+            run(max_gens: int, max_nochange: int, min_gens: int)
+            save_ga_pickle(path: str) str
+            save_to_db()
+            sort_pop()
+            summ_results(display: bool) str
+            view_np(np_index: int)
+          }
+          class GAError {
+          }
+          class GammaValues {
+            bde_aa
+            bde_ab
+            bde_bb
+            ce_a
+            ce_b
+            cn_max
+            cnbulk_a
+            cnbulk_b
+            datafile_ce
+            datafile_cn
+            datafile_experimental_hbe
+            datafile_theoretical_hbe
+            element_a
+            element_b
+            gamma : dict
+            calc_coeffs_dict(max_cn)
+            calculate_gamma(element1, element2)
+            calculate_total_gamma(cn, element1, element2)
+            lookup_bde(a, b)
+            lookup_bulk_coordination(element)
+            lookup_cohesive_energy(element)
+          }
+          class NPBuilder {
+            cuboctahedron(num_shells, kind)
+            elongated_pentagonal_bipyramid(num_shells, kind)
+            fcc_cube(num_units, kind)
+            icosahedron(num_shells, kind)
+            sphere(num_layers, kind, unit_cell_length)*
+          }
+          class NPDatabaseError {
+          }
+          class Nanoparticle {
+            bcm
+            ce
+            composition : ndarray
+            num_atoms
+            ordering : ndarray
+            copy() Nanoparticle
+            mate(nanop2: Nanoparticle) List[Nanoparticle]
+            mutate(n_swaps: int)
+          }
+          class Nanoparticles {
+            atoms
+            atoms_obj : NoneType
+            bimetallic_results
+            bonds_list : NoneType
+            id
+            num_atoms
+            num_bonds : NoneType
+            num_shells
+            polymetallic_results
+            shape
+            get_atoms_obj()
+            get_atoms_obj_skel()
+            get_bonds_list()
+            get_diameter()
+            load_bonds_list()
+          }
+          class PolymetallicResults {
+            CE
+            EE
+            atoms_obj : NoneType
+            composition : NoneType
+            composition_list
+            id
+            last_updated
+            metals : NoneType
+            metals_list
+            num_atoms
+            ordering : NoneType
+            ordering_string
+            shape
+            smix
+            structure_id
+            get_chemical_formula(latex, bold)
+            get_gmix(T)
+            save_np(path)
+            show()
+          }
+          BCModel --* GA : bcm
+          BCModel --o Nanoparticle : bcm
+  
+       </div>
+  </body>
+</html>
