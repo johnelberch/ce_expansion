@@ -17,13 +17,6 @@ from ce_expansion.ga.ga_prime import GA
 from ce_expansion.ga.ga_prime import NanoparticleAds as NP_GA
 from IPython.display import Image, display
 
-# Denny defined this to read NP gamma values from a customized directory
-gamma_folder_name = os.path.join(os.path.dirname(__file__), "Data")
-gamma_values_path = os.path.join(gamma_folder_name, "np_gammas.json")
-with open(gamma_values_path) as f:
-    gammas_np = json.load(f)
-
-
 # Modified ce_bulk values
 # QUESTION: Ask Yanni What values to use here?
 ce_bulk_pbe_d3 = {'Au':-3.64,'Pd':-4.20,'Pt':-6.20,"Ag":-2.96,"Cu":-3.95,"Ni":-5.11,"Ir":-7.95} # eV/atom PBE-D3 SOURCE: https://aip.scitation.org/doi/suppl/10.1063/1.4948636/suppl_file/supplementary_material.pdf and https://onlinelibrary.wiley.com/doi/full/10.1002/jcc.23037
@@ -128,11 +121,13 @@ class Nanoparticle:
         """
 
         # Basic assignments
-        self.cn_method = method
-        self.x = x 
-        self.describe = describe 
+        self.atoms = atoms
         self.gamma_values = gamma_values
         self.mapping = mapping
+        self.x = x        
+        self.describe = describe 
+        self.cn_method = method        
+        
         self.dict_colors = {element : color for (element,color) in zip(chemical_symbols, colors.jmol_colors)}
 
         # Composition
@@ -140,8 +135,8 @@ class Nanoparticle:
         self.composition = get_comps(self.atoms, self.unique_metals)
 
         # Initiate BCM (both int and frac CN methods)
-        self.bcm = make_bcm(atoms=self.atoms, gamma_values=self.gamma_values, mapping=self.mapping, CN_Method='frac')
-        self.bcm_int = make_bcm(atoms=self.atoms, gamma_values=self.gamma_values, mapping=self.mapping, CN_Method='int')
+        self.bcm = make_bcm(atoms=self.atoms, gamma_values=self.gamma_values, mapping=self.mapping, CN_Method='frac', bond_list=bond_list)
+        self.bcm_int = make_bcm(atoms=self.atoms, gamma_values=self.gamma_values, mapping=self.mapping, CN_Method='int', bond_list=bond_list)
 
         # Get cut and number of shells
         self.atom_cut = self.x_cut(self.atoms, coordinate=cut_coord)
@@ -157,10 +152,10 @@ class Nanoparticle:
             self.GA_init.sort_pop()
                  
     
-    ### FROM HERE
     def __len__(self):
         return len(self.atoms)
     
+
     def core_shell_info(self):
         """Collecting core/shell information from the xyz file
 
@@ -192,10 +187,23 @@ class Nanoparticle:
         
         return  shells,comps,totals
 
+
     def Generate_GA(self,bcm,COMPS,x=1.20,describe="none",method='frac'):
+        """Generates a GA instance
+
+        Returns:
+            Instance of GA object
+        
+        """
         return GA(bcm,COMPS,describe)
     
+
     def x_cut(self,original_atoms,dir='pos',coordinate='x'):
+        """Cleaves a nanoparticle, exposing half of it for visualization
+
+        Returns:
+            Cleaved ase.Atoms object        
+        """
         atoms = original_atoms.copy()
         core_atom = atoms[self.bcm_int.shell_map[0]][0]
         if coordinate=='x':
@@ -216,6 +224,7 @@ class Nanoparticle:
         del atoms[atoms_to_del]
         return atoms
 
+
     def run_ga(self,max_gens=-1,max_nochange=2000):
         """Run the GA to find the optimal chemical ordering.  This function will run the GA until the max number of generations is reached 
             or the max number of generations without a change in the best fitness is reached.
@@ -234,7 +243,7 @@ class Nanoparticle:
         print("Saving optimized structure...")
         self.ga = ga
         self.atoms = self.ga.make_atoms_object()
-        self.bcm = make_bcm(self.atoms,x=self.x,CN_Method=self.cn_method)
+        self.bcm = make_bcm(atoms=self.atoms, gamma_values=self.gamma_values, mapping=self.mapping, CN_Method=self.cn_method)
         self.shells,self.comps,self.totals = self.core_shell_info()
         self.atom_cut = self.x_cut(self.atoms)
         print("Done!")
@@ -257,7 +266,7 @@ class Nanoparticle:
             view (ASE): ASE view object
         """
         if cut and not rotate:
-            if positive == True:
+            if positive:
                 view(self.atom_cut)
             else:
                 view(self.atom_cut_neg)
@@ -267,7 +276,7 @@ class Nanoparticle:
             
             if os.path.exists(path):
                 os.remove(path)
-            if positive == True:
+            if positive:
                 molgif.rot_gif(self.atom_cut,optimize=True,save_path=path,overwrite=True,draw_bonds=False,draw_legend=True,colors=colors);
             else:
                 molgif.rot_gif(self.atom_cut_neg,optimize=True,save_path=path,overwrite=True,draw_bonds=False,draw_legend=True,colors=colors);
@@ -287,6 +296,7 @@ class Nanoparticle:
         else:
             view(self.atoms)
         
+
     def write(self,filename):
         """Write the atoms object to a file
 
@@ -294,6 +304,7 @@ class Nanoparticle:
             filename (str): path to the file
         """
         self.atoms.write(filename)
+
 
     def calc_ce(self):
         """Calculate the cohesive energy of the nanoparticle
@@ -304,6 +315,7 @@ class Nanoparticle:
         ce = self.bcm.calc_ce(get_ordering(self.atoms))
         return ce
     
+
     def get_diam(self):
         """Calculate the diameter of the nanoparticle in Angstroms"""
         #cn_surfaces,surf_atoms = get_surface_atoms(atoms)

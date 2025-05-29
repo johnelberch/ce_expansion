@@ -104,22 +104,34 @@ class BCModelAds:
         if not mapping:
             warn("BCModelAds class was initiated, but no Mapping dictionary provided. Is this expected behavior?", UserWarning)
 
-        assert all([{k,v} <= set(self.metal_types) for (k,v) in self.mapping.items()]), "Some elements in the mapping dictionary are not present in the atoms object"
-        assert all([e in self.metal_types for e in gamma_values.keys()]), "Some elements in the atoms object are not present in the Gamma values dictionary"
-        assert all(e == len(gamma_values) for e in [len(L) for L in gamma_values.values()]), "The Gamma values dictionary is inconsistent. Make sure all inner dictionaries have the same length and include ALL elements"
+        if not all([e in self.metal_types for e in gamma_values.keys()]):
+            raise KeyError("Some elements in the atoms object are not present in the Gamma values dictionary")
+            
+        if not all([{k,v} <= set(self.metal_types) for (k,v) in self.mapping.items()]):
+            raise ValueError("Some elements in the mapping dictionary are not present in the atoms object")
+        
+        if not  all(e == len(gamma_values) for e in [len(L) for L in gamma_values.values()]):
+             raise ValueError("The Gamma values dictionary is inconsistent. Make sure all inner dictionaries have the same length and include ALL elements")
 
         for k,v in self.mapping.items():
             self.radius[k] = radii[v]
+
+        # Custom atoms object for connectivity purposes (safety guard, as some ASE connectivity functions use data dictionaries)
+        self.connectivity_atoms = atoms.copy()
+        symbols = np.array(self.connectivity_atoms.get_chemical_symbols())
+        for k,v in mapping.items():
+            symbols = np.char.replace(symbols, k, v)
+        self.connectivity_atoms.set_chemical_symbols(symbols)
 
         # Define bond list
         #TODO: Check if having bond_list is really necessary. If not, merge with the if statement below
         #QUESTION: One idea is to modify the GA algorithm so it updates the bond list with simple slicing. That way, we can avoid calling adjacency.build_bonds_arr every time we need it?
         if self.bond_list is None:
             if CN_Method == 'frac':
-                self.radii_bond_list = get_cutoffs(self.atoms,self.mapping,1.2)
-                self.bond_list = adjacency.build_bonds_arr(self.atoms,self.radii_bond_list)
+                self.radii_bond_list = get_cutoffs(self.connectivity_atoms,self.mapping,1.2)
+                self.bond_list = adjacency.build_bonds_arr(self.connectivity_atoms,self.radii_bond_list)
             else:
-                self.bond_list = adjacency.build_bonds_arr(self.atoms)
+                self.bond_list = adjacency.build_bonds_arr(self.connectivity_atoms)
 
         # Values for precomps
         if CN_Method=='int':

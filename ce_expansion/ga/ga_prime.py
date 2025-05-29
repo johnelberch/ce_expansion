@@ -194,7 +194,14 @@ class NanoparticleAds:
         # recalculate CE
         self._calc_score()
 
-    
+    def _calc_score(self):
+        """
+        Sets CE of structure based on Bond-Centric Model:
+        - Yan, Z. et al., Nano Lett. 2018, 18 (4), 2696-2704.
+        """
+        self.ce = self.bcm.calc_ce(self.ordering)
+     
+
 class GA(object):
     def __init__(self, bcm: BCModelAds,
                  composition: Iterable[int], shape: str,
@@ -239,9 +246,7 @@ class GA(object):
 
         # NP parameters
         self.bcm = bcm
-    
         self.num_atoms = len(self.bcm)
-
         self.composition = np.array(composition).astype(int)
 
         # GA only works with polymetallic NPs (# metal > 1)
@@ -420,7 +425,6 @@ class GA(object):
 
         # convert stats to an array
         self.stats = np.array(self.stats)
-
         self.has_run = True
 
         # print summary of simulation
@@ -464,9 +468,7 @@ class GA(object):
             lim=1)
 
         self._initialize_pop()
-
         self.orig_min = min(self).ce
-
         self.stats = []
         self._update_stats()
 
@@ -518,7 +520,6 @@ class GA(object):
         # makes new array of strings which can be used with ASE's ".symbols"
 
         elements = np.array(self.bcm.metal_types)[element_ordering]
-
         atoms = self.bcm.atoms.copy()
         atoms.symbols = elements
 
@@ -891,7 +892,14 @@ def build_ga(atoms: ase.Atoms, gamma_values: Dict[str, Dict[str,float]],
         composition[-1] += len(atoms) - composition.sum()
 
     if bonds is None:
-        bonds = adjacency.build_bonds_arr(atoms)
+        # Custom atoms object for connectivity purposes (safety guard, as some ASE connectivity functions use data dictionaries)
+        connectivity_atoms = atoms.copy()
+        symbols = np.array(connectivity_atoms.get_chemical_symbols())
+        for k,v in mapping.items():
+            symbols = np.char.replace(symbols, k, v)
+        connectivity_atoms.set_chemical_symbols(symbols)
+        # Get bonds
+        bonds = adjacency.build_bonds_arr(connectivity_atoms)
 
     bcm = BCModelAds(atoms, gamma_values = gamma_values, bond_list = bonds, mapping = mapping)
     ga = GA(bcm, composition, shape, **ga_kwargs)

@@ -11,6 +11,15 @@ import numpy as np
 import ase
 import ase.neighborlist
 
+# TODO: Clean and streamline this function
+def get_nneighbors(n: ase.neighborlist.NeighborList):
+    """
+    Custom function to get number of neighbors (for now it is a copy pase of ASE, just that it doesn't have the annoying deprecation warning)
+    """
+    nneighbors = sum(indices.size for indices in n.nl.neighbors)
+    if n.nl.self_interaction:
+        nneighbors -= len(n.nl.neighbors)
+    return nneighbors // 2 if n.nl.bothways else nneighbors
 
 def build_bonds_arr(atoms: ase.Atoms, radii: Iterable[float] = None) -> np.ndarray:
     """
@@ -35,10 +44,12 @@ def build_bonds_arr(atoms: ase.Atoms, radii: Iterable[float] = None) -> np.ndarr
     # create neighborlist object
     n = ase.neighborlist.NeighborList(radii, skin=0, self_interaction=False)
     n.update(atoms)
+    # QUESTION: Check in depth this weird call
     if not n.nneighbors:
         return []
+    nneighbors = get_nneighbors(n)
 
-    bonds = np.zeros((n.nneighbors, 2), int)
+    bonds = np.zeros((nneighbors, 2), int)
     spot1 = 0
     for atomi in range(len(atoms)):
         # get neighbors of atomi
@@ -55,7 +66,7 @@ def build_bonds_arr(atoms: ase.Atoms, radii: Iterable[float] = None) -> np.ndarr
         spot1 = spot2
 
         # once all bonds have been found break loop
-        if spot1 == n.nneighbors:
+        if spot1 == nneighbors:
             break
 
     return np.concatenate((bonds, bonds[:, ::-1]))
